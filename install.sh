@@ -105,12 +105,29 @@ else
 fi
 
 VERSION="$(node -p 'require("./package.json").version')"
-VSIX="open-cursor-models-$VERSION.vsix"
+VSIX="$(node -p 'var p=require("./package.json"); p.name + "-" + p.version + ".vsix"')"
 
 info "Packaging extension v$VERSION"
 rm -f "$VSIX"
 npm run package >/dev/null
-[ -f "$VSIX" ] || die "Packaging finished but $VSIX was not created."
+
+if [ ! -f "$VSIX" ]; then
+  # vsce derives the filename from the manifest, so fall back to whatever it
+  # just wrote rather than failing on a name mismatch.
+  VSIX="$(ls -t ./*.vsix 2>/dev/null | head -n 1 || true)"
+  [ -n "$VSIX" ] && [ -f "$VSIX" ] || die "Packaging finished but no .vsix file was created. Run 'npm run package' directly to see the error."
+fi
+
+EXTENSION_ID="$(node -p 'var p=require("./package.json"); p.publisher + "." + p.name')"
+
+# Earlier releases shipped under different publisher/name pairs. Leaving them
+# installed means two copies racing for the same proxy port and commands.
+for stale in open-cursor.open-cursor-models shipper-is.open-cursor-models; do
+  if [ "$stale" != "$EXTENSION_ID" ] && "$CURSOR_BIN" --list-extensions 2>/dev/null | grep -qx "$stale"; then
+    info "Removing superseded extension $stale"
+    "$CURSOR_BIN" --uninstall-extension "$stale" >/dev/null 2>&1 || warn "Could not remove $stale. Uninstall it from the Extensions pane."
+  fi
+done
 
 info "Installing extension into Cursor"
 "$CURSOR_BIN" --install-extension "$VSIX" --force
