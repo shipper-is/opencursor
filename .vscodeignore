@@ -1,8 +1,15 @@
-.vscode/**
 src/**
+test/**
 node_modules/**
+.vscode/**
+.github/**
 .gitignore
 tsconfig.json
 esbuild.mjs
 **/*.ts
 **/*.map
+**/*.test.ts
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+install.sh

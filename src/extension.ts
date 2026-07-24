@@ -3,8 +3,8 @@ import { ModelStore } from "./modelStore";
 import { promptForModel, testModelConnection } from "./modelActions";
 import { ProxyServer } from "./proxyServer";
 import { SetupWizardOptions, SetupWizardPanel } from "./setupWizard";
-import { publicBaseUrl, TunnelManager } from "./tunnelManager";
-import { ProviderSlot } from "./types";
+import { publicBaseUrl, ProviderSlot } from "./types";
+import { TunnelManager } from "./tunnelManager";
 
 const ONBOARDING_SHOWN_KEY = "openCursorModels.onboardingShown";
 

@@ -67,6 +67,10 @@ export function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+export function publicBaseUrl(publicUrl: string): string {
+  return `${publicUrl.replace(/\/+$/, "")}/v1`;
+}
+
 export function generateId(name: string): string {
   const slug = name
     .toLowerCase()

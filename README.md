@@ -2,22 +2,55 @@
 
 Use models from OpenAI-compatible or Anthropic APIs inside Cursor. OpenCursor stores each model's provider URL and API key, then routes Cursor requests through one local proxy.
 
+> **Unofficial project.** Open Cursor Models is not affiliated with, endorsed by, or sponsored by Anysphere or Cursor. “Cursor” is a trademark of its respective owners.
+
 ## Install
 
 Requirements:
 
-- Cursor
-- Node.js 18 or newer
-- An HTTPS tunnel provider: [ngrok](https://ngrok.com/download) or [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) is recommended. If neither is installed, OpenCursor falls back to `npx localtunnel`.
+- [Cursor](https://cursor.com) (not vanilla VS Code for the full setup flow)
+- Node.js **20** or newer
+- An HTTPS tunnel provider on your `PATH`: [ngrok](https://ngrok.com/download) or [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
 
-Build and install the extension:
+macOS, Linux, and Windows are supported. On Windows, install ngrok or cloudflared and ensure they are on your `PATH`.
+
+In Cursor, open Extensions, search for **Open Cursor Models**, and click Install. Or from a terminal:
 
 ```sh
-npm install
+cursor --install-extension shipper-is.open-cursor-models
+```
+
+Installing this way needs neither Node.js nor git.
+
+### Install from source
+
+Run the installer from a clone of this repo:
+
+```sh
+./install.sh
+```
+
+The installer finds the Cursor CLI and installs the published extension, falling back to a source build if the marketplace copy is unavailable. Set `OPEN_CURSOR_FROM_SOURCE=1` to always build from source. Reload Cursor when it finishes.
+
+Or install without cloning first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shipper-is/open-cursor/main/install.sh | bash
+```
+
+Set `OPEN_CURSOR_REPO` or `OPEN_CURSOR_REF` if you want the piped installer to build from a different repo or branch.
+
+<details>
+<summary>Manual install</summary>
+
+```sh
+npm ci
 npm run package
 ```
 
 In Cursor, open Extensions, choose **More Actions → Install from VSIX**, and select the generated `.vsix` file.
+
+</details>
 
 ## Setup
 
@@ -29,7 +62,7 @@ Click **Add model** and enter:
 
 - A display name
 - The exact model ID expected by the provider
-- The provider API base URL
+- The provider API base URL (prefer **HTTPS**)
 - The API protocol
 - The provider API key
 
@@ -39,7 +72,7 @@ Add as many models as you need. Every model can use a different provider, URL, a
 
 Click **Start proxy**. OpenCursor starts:
 
-- A local routing proxy
+- A local routing proxy bound to `127.0.0.1`
 - A public HTTPS tunnel that Cursor can reach
 
 Wait for the setup page to show **Proxy and tunnel are running**. The extension starts the proxy automatically on future Cursor launches when at least one model is enabled.
@@ -68,11 +101,57 @@ Your models are now available in Cursor's model picker.
 
 Use the same setup page to add, test, edit, disable, or delete models and to restart the proxy. Clicking **Custom Models** in the status bar always returns to this page.
 
+## Privacy and security
+
+- **Provider API keys** stay in Cursor SecretStorage and are only sent to the upstream base URL you configure.
+- **The generated proxy key** authenticates every request to the local proxy. Anyone who has both the public Base URL and that key can use your configured models—treat it like a password.
+- **Prompts and responses** travel through the tunnel provider you choose (ngrok or Cloudflare) and then to your model provider. Prefer a tunnel you trust.
+- **This project does not phone home.** There is no maintainer telemetry. Optional request logging stays in Cursor’s local Output channel (`openCursorModels.logRequests`, off by default).
+- See [SECURITY.md](SECURITY.md) for reporting vulnerabilities and a fuller threat model.
+
 ## Troubleshooting
 
+- **Installer cannot find the Cursor CLI:** In Cursor, run **Shell Command: Install 'cursor' command in PATH** from the Command Palette, then run `./install.sh` again.
 - **Tunnel failed:** Install ngrok or cloudflared, then click **Start proxy** again.
 - **Model not found:** Copy the exact generated model name from step 4.
 - **Unauthorized:** Copy the generated proxy key from step 3 into the selected Cursor API key field.
 - **Base URL stopped working:** Restart the proxy and copy the current HTTPS Base URL into Cursor again.
 
 For detailed proxy and tunnel errors, open **View → Output** and select **Open Cursor Models**.
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+```sh
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
+
+## Releasing
+
+Cursor's extension marketplace is backed by [Open VSX](https://open-vsx.org), so publishing there is what makes the one-click install work.
+
+One-time setup:
+
+1. Sign in to [open-vsx.org](https://open-vsx.org) with GitHub and sign the publisher agreement.
+2. Create an access token from your Open VSX profile.
+3. Claim the namespace: `OVSX_PAT=<token> npm run namespace:openvsx`.
+4. Add the token as a repository secret named `OVSX_PAT` in GitHub.
+
+To ship a release, bump the version and push a matching tag:
+
+```sh
+npm version minor
+git push --follow-tags
+```
+
+The `Release` workflow verifies the tag matches the manifest version, packages the extension, publishes it to Open VSX, and attaches the `.vsix` to a GitHub release. Run it manually from the Actions tab to build a `.vsix` without publishing.
+
+To publish from your machine instead: `OVSX_PAT=<token> npm run publish:openvsx`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

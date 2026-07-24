@@ -101,7 +101,11 @@ export class SetupWizardPanel {
       "openCursorModelsSetup",
       "Open Cursor Models Setup",
       column ?? vscode.ViewColumn.One,
-      { enableScripts: true, retainContextWhenHidden: true }
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [],
+      }
     );
 
     SetupWizardPanel.currentPanel = new SetupWizardPanel(panel, options);
@@ -205,10 +209,19 @@ export class SetupWizardPanel {
       ? copyField("Base URL", cursorBaseUrl)
       : `<div class="pending-field">Start the proxy to generate your HTTPS Base URL.</div>`;
 
+    const nonce = getNonce();
+    const csp = [
+      "default-src 'none'",
+      `img-src ${this.panel.webview.cspSource} data:`,
+      `style-src ${this.panel.webview.cspSource} 'unsafe-inline'`,
+      `script-src 'nonce-${nonce}'`,
+    ].join("; ");
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root { color-scheme: light dark; }
@@ -416,7 +429,7 @@ export class SetupWizardPanel {
       </div>
     </section>
   </main>
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.addEventListener('click', (event) => {
       const target = event.target.closest('button');
@@ -485,4 +498,14 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function getNonce(): string {
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let nonce = "";
+  for (let i = 0; i < 32; i += 1) {
+    nonce += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return nonce;
 }

@@ -3,10 +3,19 @@
   "displayName": "Open Cursor Models",
   "description": "Use any supported AI provider in Cursor through one guided setup",
   "version": "0.5.0",
-  "publisher": "open-cursor",
+  "publisher": "shipper-is",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shipper-is/open-cursor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shipper-is/open-cursor/issues"
+  },
+  "homepage": "https://github.com/shipper-is/open-cursor#readme",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.90.0",
+    "node": ">=20"
   },
   "categories": [
     "Other"
@@ -53,19 +62,18 @@
         },
         "openCursorModels.logRequests": {
           "type": "boolean",
-          "default": true,
-          "description": "Log proxied requests to the Open Cursor Models output channel."
+          "default": false,
+          "description": "Log proxied request paths and routes to the Open Cursor Models output channel."
         },
         "openCursorModels.tunnelProvider": {
           "type": "string",
           "enum": [
             "auto",
             "ngrok",
-            "cloudflared",
-            "localtunnel"
+            "cloudflared"
           ],
           "default": "auto",
-          "description": "Tunnel provider. Auto tries ngrok, then cloudflared, then localtunnel."
+          "description": "Tunnel provider. Auto tries ngrok, then cloudflared."
         },
         "openCursorModels.providerSlot": {
           "type": "string",
@@ -89,13 +97,20 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "package": "vsce package"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && node --import tsx --test test/**/*.test.ts",
+    "package": "vsce package",
+    "vsix:path": "node -p \"const p=require('./package.json');`${p.name}-${p.version}.vsix`\"",
+    "publish:openvsx": "npm run package && ovsx publish \"$(npm run --silent vsix:path)\"",
+    "namespace:openvsx": "ovsx create-namespace shipper-is"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.28.1",
+    "ovsx": "^0.10.12",
+    "tsx": "^4.23.1",
     "typescript": "^5.7.0"
   }
 }

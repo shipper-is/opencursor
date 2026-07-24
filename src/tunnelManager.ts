@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 const TUNNEL_URL_TIMEOUT_MS = 45_000;
 const NGROK_API = "http://127.0.0.1:4040/api/tunnels";
 
-export type TunnelProvider = "auto" | "ngrok" | "cloudflared" | "localtunnel";
+export type TunnelProvider = "auto" | "ngrok" | "cloudflared";
 
 export interface TunnelResult {
   publicUrl: string;
@@ -60,7 +60,7 @@ export class TunnelManager {
     }
 
     throw new Error(
-      `${lastError}. Fix: run 'ngrok update', or 'brew install cloudflared' for a reliable tunnel.`
+      `${lastError}. Install ngrok (https://ngrok.com/download) or cloudflared, ensure it is on your PATH, then try Start proxy again.`
     );
   }
 
@@ -99,8 +99,6 @@ export class TunnelManager {
         return this.startNgrok(port);
       case "cloudflared":
         return this.startCloudflared(port);
-      case "localtunnel":
-        return this.startLocaltunnel(port);
     }
   }
 
@@ -164,34 +162,6 @@ export class TunnelManager {
 
     return { publicUrl: url, provider: "cloudflared" };
   }
-
-  private async startLocaltunnel(port: number): Promise<TunnelResult> {
-    const proc = spawn(
-      "npx",
-      ["--yes", "localtunnel", "--port", String(port)],
-      { stdio: ["ignore", "pipe", "pipe"], env: process.env, shell: true }
-    );
-    this.process = proc;
-
-    let buffer = "";
-    const handleOutput = (data: Buffer) => {
-      const text = data.toString();
-      buffer += text;
-      this.log(`[localtunnel] ${text.trim()}`);
-    };
-
-    proc.stdout?.on("data", handleOutput);
-    proc.stderr?.on("data", handleOutput);
-
-    const url = await waitForRegexUrl(
-      proc,
-      buffer,
-      /https:\/\/[a-z0-9-]+\.loca\.lt/,
-      "localtunnel"
-    );
-
-    return { publicUrl: url, provider: "localtunnel" };
-  }
 }
 
 function resolveProviderOrder(
@@ -200,15 +170,22 @@ function resolveProviderOrder(
   if (preference !== "auto") {
     return [preference];
   }
-  return ["ngrok", "cloudflared", "localtunnel"];
+  return ["ngrok", "cloudflared"];
 }
 
 async function assertCommandExists(command: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn("which", [command], { stdio: ["ignore", "pipe", "pipe"] });
+    const checker = process.platform === "win32" ? "where" : "which";
+    const proc = spawn(checker, [command], {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
+    });
     let stdout = "";
     proc.stdout?.on("data", (d: Buffer) => {
       stdout += d.toString();
+    });
+    proc.on("error", () => {
+      reject(new Error(`${command} is not installed`));
     });
     proc.on("close", (code) => {
       if (code === 0 && stdout.trim()) {
@@ -258,7 +235,6 @@ async function waitForRegexUrl(
   name: string
 ): Promise<string> {
   let buffer = initialBuffer;
-  const started = Date.now();
 
   return new Promise((resolve, reject) => {
     const onData = (data: Buffer) => {
@@ -295,20 +271,10 @@ async function waitForRegexUrl(
     if (immediate) {
       cleanup();
       resolve(immediate[0]);
-      return;
-    }
-
-    if (Date.now() - started > TUNNEL_URL_TIMEOUT_MS) {
-      cleanup();
-      reject(new Error(`Timed out waiting for ${name} tunnel URL`));
     }
   });
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export function publicBaseUrl(publicUrl: string): string {
-  return `${publicUrl.replace(/\/+$/, "")}/v1`;
 }

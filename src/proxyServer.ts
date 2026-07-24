@@ -18,6 +18,11 @@ import {
   openAiToGeminiResponse,
   parseGeminiRoute,
 } from "./geminiInbound";
+import {
+  fetchUpstream,
+  readBody,
+  summarizeErrorBody,
+} from "./httpUtils";
 
 type LogFn = (message: string) => void;
 
@@ -157,9 +162,14 @@ export class ProxyServer {
       this.sendJson(res, 404, { error: `Unknown route: ${req.method} ${path}` });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.log(`Request error: ${message}`);
+      this.log(`Request error: ${summarizeErrorBody(message, 200)}`);
       this.sendJson(res, 500, {
-        error: { message, type: "proxy_error" },
+        error: {
+          message: message.includes("Request body exceeds")
+            ? message
+            : "Proxy request failed",
+          type: "proxy_error",
+        },
       });
     }
   }
@@ -248,7 +258,7 @@ export class ProxyServer {
     }
 
     const upstreamUrl = joinUpstreamUrl(target.baseUrl, "/chat/completions");
-    const upstream = await fetch(upstreamUrl, {
+    const upstream = await fetchUpstream(upstreamUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -262,11 +272,13 @@ export class ProxyServer {
 
     if (!upstream.ok) {
       const text = await upstream.text();
-      this.log(`Upstream ${upstream.status} from ${upstreamUrl}: ${text.slice(0, 300)}`);
+      this.log(
+        `Upstream ${upstream.status} from ${upstreamUrl}: ${summarizeErrorBody(text)}`
+      );
       this.sendJson(res, upstream.status, {
         error: {
           code: upstream.status,
-          message: text.slice(0, 500),
+          message: summarizeErrorBody(text, 200),
           status: "UNKNOWN",
         },
       });
@@ -343,7 +355,7 @@ export class ProxyServer {
       target.upstreamModel,
       false
     );
-    const upstream = await fetch(upstreamUrl, {
+    const upstream = await fetchUpstream(upstreamUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -361,12 +373,12 @@ export class ProxyServer {
     if (!upstream.ok) {
       const text = await upstream.text();
       this.log(
-        `Upstream ${upstream.status} from ${upstreamUrl}: ${text.slice(0, 300)}`
+        `Upstream ${upstream.status} from ${upstreamUrl}: ${summarizeErrorBody(text)}`
       );
       this.sendJson(res, upstream.status, {
         error: {
           code: upstream.status,
-          message: text.slice(0, 500),
+          message: summarizeErrorBody(text, 200),
           status: "UNKNOWN",
         },
       });
@@ -447,7 +459,7 @@ export class ProxyServer {
       anthropicToOpenAi(payload, target.upstreamModel)
     );
 
-    const upstream = await fetch(upstreamUrl, {
+    const upstream = await fetchUpstream(upstreamUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -459,10 +471,12 @@ export class ProxyServer {
 
     if (!upstream.ok) {
       const text = await upstream.text();
-      this.log(`Upstream ${upstream.status} from ${upstreamUrl}: ${text.slice(0, 300)}`);
+      this.log(
+        `Upstream ${upstream.status} from ${upstreamUrl}: ${summarizeErrorBody(text)}`
+      );
       this.sendJson(res, upstream.status, {
         type: "error",
-        error: { type: "api_error", message: text.slice(0, 500) },
+        error: { type: "api_error", message: summarizeErrorBody(text, 200) },
       });
       return;
     }
@@ -590,7 +604,7 @@ export class ProxyServer {
       headers.authorization = `Bearer ${target.apiKey}`;
     }
 
-    const upstream = await fetch(upstreamUrl, {
+    const upstream = await fetchUpstream(upstreamUrl, {
       method: "POST",
       headers,
       body: upstreamBody,
@@ -631,7 +645,9 @@ export class ProxyServer {
 
     const text = await upstream.text();
     if (!upstream.ok) {
-      this.log(`Upstream ${upstream.status} from ${upstreamUrl}: ${text.slice(0, 300)}`);
+      this.log(
+        `Upstream ${upstream.status} from ${upstreamUrl}: ${summarizeErrorBody(text)}`
+      );
     }
     if (target.provider === "anthropic") {
       try {
@@ -687,15 +703,6 @@ export class ProxyServer {
     res.setHeader("content-type", "application/json");
     res.end(payload);
   }
-}
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
 }
 
 function copyHeaders(source: Headers, res: ServerResponse): void {

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { fetchUpstream, summarizeErrorBody } from "./httpUtils";
 import { joinUpstreamUrl } from "./requestTransform";
 import { ModelFormValues, ProviderType } from "./types";
 
@@ -43,9 +44,13 @@ export async function promptForModel(
       }
       try {
         const url = new URL(value.trim());
-        return url.protocol === "https:" || url.protocol === "http:"
-          ? undefined
-          : "Use an HTTP or HTTPS URL";
+        if (url.protocol === "https:") {
+          return undefined;
+        }
+        if (url.protocol === "http:") {
+          return undefined;
+        }
+        return "Use an HTTP or HTTPS URL";
       } catch {
         return "Enter a valid URL";
       }
@@ -54,6 +59,12 @@ export async function promptForModel(
   });
   if (baseUrl === undefined) {
     return undefined;
+  }
+
+  if (baseUrl.trim().toLowerCase().startsWith("http://")) {
+    void vscode.window.showWarningMessage(
+      "This provider URL uses HTTP. Prefer HTTPS so the API key is not sent in cleartext."
+    );
   }
 
   const provider = await vscode.window.showQuickPick<{
@@ -113,7 +124,7 @@ export async function testModelConnection(
   const isAnthropic = values.provider === "anthropic";
 
   try {
-    const response = await fetch(
+    const response = await fetchUpstream(
       joinUpstreamUrl(
         values.baseUrl,
         isAnthropic ? "/v1/messages" : "/chat/completions"
@@ -153,7 +164,7 @@ export async function testModelConnection(
     const text = await response.text();
     return {
       ok: false,
-      message: `HTTP ${response.status}: ${text.slice(0, 200)}`,
+      message: `HTTP ${response.status}: ${summarizeErrorBody(text, 200)}`,
     };
   } catch (error) {
     return {
