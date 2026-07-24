@@ -43,7 +43,7 @@ jobs:
           npm run package
           echo "vsix=$(npm run --silent vsix:path)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.vsix }}
           path: ${{ steps.package.outputs.vsix }}
