@@ -1,0 +1,101 @@
+{
+  "name": "open-cursor-models",
+  "displayName": "Open Cursor Models",
+  "description": "Use any supported AI provider in Cursor through one guided setup",
+  "version": "0.5.0",
+  "publisher": "open-cursor",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "cursor",
+    "models",
+    "openai",
+    "api",
+    "proxy"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "openCursorModels.openSetup",
+        "title": "Open Models Setup",
+        "category": "Open Cursor Models",
+        "icon": "$(settings-gear)"
+      }
+    ],
+    "configuration": {
+      "title": "Open Cursor Models",
+      "properties": {
+        "openCursorModels.proxyPort": {
+          "type": "number",
+          "default": 18420,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Port for the local OpenAI-compatible routing proxy."
+        },
+        "openCursorModels.modelPrefix": {
+          "type": "string",
+          "default": "oc-",
+          "description": "Prefix added to custom model names in Cursor to avoid conflicts with built-in models."
+        },
+        "openCursorModels.autoStartProxy": {
+          "type": "boolean",
+          "default": true,
+          "description": "After initial setup, start the proxy automatically when Cursor launches."
+        },
+        "openCursorModels.logRequests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Log proxied requests to the Open Cursor Models output channel."
+        },
+        "openCursorModels.tunnelProvider": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "ngrok",
+            "cloudflared",
+            "localtunnel"
+          ],
+          "default": "auto",
+          "description": "Tunnel provider. Auto tries ngrok, then cloudflared, then localtunnel."
+        },
+        "openCursorModels.providerSlot": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "google"
+          ],
+          "enumDescriptions": [
+            "Use Cursor's OpenAI API Key field and oc- model names.",
+            "Use Cursor's Anthropic API Key field and claude-oc- model names.",
+            "Recommended. Use Cursor's Google API Key field and gemini-oc- model names."
+          ],
+          "default": "google",
+          "description": "Which Cursor API key field carries the generated OpenCursor proxy key."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}
