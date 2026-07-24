@@ -25,7 +25,7 @@ It checks your Node version, finds the Cursor CLI, builds the extension, and ins
 Or install without cloning first:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/shipper-is/open-cursor/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/shipper-is/opencursor/main/install.sh | bash
 ```
 
 Set `OPEN_CURSOR_REPO` or `OPEN_CURSOR_REF` if you want the piped installer to build from a different repo or branch.

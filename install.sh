@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${OPEN_CURSOR_REPO:-https://github.com/shipper-is/open-cursor.git}"
+REPO_URL="${OPEN_CURSOR_REPO:-https://github.com/shipper-is/opencursor.git}"
 REPO_REF="${OPEN_CURSOR_REF:-main}"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
