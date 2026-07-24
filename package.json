@@ -100,16 +100,13 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && node --import tsx --test test/**/*.test.ts",
     "package": "vsce package",
-    "vsix:path": "node -p \"const p=require('./package.json');`${p.name}-${p.version}.vsix`\"",
-    "publish:openvsx": "npm run package && ovsx publish \"$(npm run --silent vsix:path)\"",
-    "namespace:openvsx": "ovsx create-namespace shipper-is"
+    "vsix:path": "node -p \"var p=require('./package.json'); p.name + '-' + p.version + '.vsix'\""
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
-    "ovsx": "^0.10.12",
     "tsx": "^4.23.1",
     "typescript": "^5.7.0"
   }

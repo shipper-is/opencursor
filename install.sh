@@ -3,7 +3,6 @@ set -euo pipefail
 
 REPO_URL="${OPEN_CURSOR_REPO:-https://github.com/shipper-is/open-cursor.git}"
 REPO_REF="${OPEN_CURSOR_REF:-main}"
-EXTENSION_ID="shipper-is.open-cursor-models"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$1" >&2; }
@@ -69,15 +68,6 @@ EOF
 
 CURSOR_BIN="$(find_cursor)" || die "Could not find the Cursor CLI. Open Cursor, run 'Shell Command: Install cursor command in PATH' from the command palette, then run this script again."
 info "Using Cursor CLI at $CURSOR_BIN"
-
-if [ "${OPEN_CURSOR_FROM_SOURCE:-0}" != "1" ]; then
-  info "Installing $EXTENSION_ID from the extension marketplace"
-  if "$CURSOR_BIN" --install-extension "$EXTENSION_ID" --force; then
-    print_next_steps
-    exit 0
-  fi
-  warn "Marketplace install failed. Falling back to building from source."
-fi
 
 info "Checking build requirements"
 require git "git is required. Install it and run this script again."

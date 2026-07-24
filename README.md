@@ -14,23 +14,13 @@ Requirements:
 
 macOS, Linux, and Windows are supported. On Windows, install ngrok or cloudflared and ensure they are on your `PATH`.
 
-In Cursor, open Extensions, search for **Open Cursor Models**, and click Install. Or from a terminal:
-
-```sh
-cursor --install-extension shipper-is.open-cursor-models
-```
-
-Installing this way needs neither Node.js nor git.
-
-### Install from source
-
 Run the installer from a clone of this repo:
 
 ```sh
 ./install.sh
 ```
 
-The installer finds the Cursor CLI and installs the published extension, falling back to a source build if the marketplace copy is unavailable. Set `OPEN_CURSOR_FROM_SOURCE=1` to always build from source. Reload Cursor when it finishes.
+It checks your Node version, finds the Cursor CLI, builds the extension, and installs it into Cursor. Reload Cursor when it finishes.
 
 Or install without cloning first:
 
@@ -132,25 +122,7 @@ npm run build
 
 ## Releasing
 
-Cursor's extension marketplace is backed by [Open VSX](https://open-vsx.org), so publishing there is what makes the one-click install work.
-
-One-time setup:
-
-1. Sign in to [open-vsx.org](https://open-vsx.org) with GitHub and sign the publisher agreement.
-2. Create an access token from your Open VSX profile.
-3. Claim the namespace: `OVSX_PAT=<token> npm run namespace:openvsx`.
-4. Add the token as a repository secret named `OVSX_PAT` in GitHub.
-
-To ship a release, bump the version and push a matching tag:
-
-```sh
-npm version minor
-git push --follow-tags
-```
-
-The `Release` workflow verifies the tag matches the manifest version, packages the extension, publishes it to Open VSX, and attaches the `.vsix` to a GitHub release. Run it manually from the Actions tab to build a `.vsix` without publishing.
-
-To publish from your machine instead: `OVSX_PAT=<token> npm run publish:openvsx`.
+There is nothing to publish. Users build from source with `install.sh`, so shipping a change is just merging it to `main`. Bump the version in `package.json` when you want the installed extension version to change.
 
 ## License
 
