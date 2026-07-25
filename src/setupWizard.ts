@@ -57,6 +57,8 @@ export interface SetupWizardOptions {
   cursorBaseUrl?: string;
   tunnelProvider?: string;
   tunnelError?: string;
+  /** The proxy and tunnel are owned by another open Cursor window. */
+  sharedFromOtherWindow?: boolean;
   providerSlot: ProviderSlot;
   subagent: SubagentSettings;
   diagnostics: DiagnosticsSettings;
@@ -210,6 +212,7 @@ export class SetupWizardPanel {
       proxyApiKey,
       proxyPort,
       proxyRunning,
+      sharedFromOtherWindow,
       subagent,
       tunnelError,
       tunnelProvider,
@@ -265,6 +268,7 @@ export class SetupWizardPanel {
       proxyApiKey,
       proxyPort,
       ready,
+      sharedFromOtherWindow,
       slotLabel,
       tunnelError,
       tunnelProvider,
@@ -287,6 +291,7 @@ export class SetupWizardPanel {
     proxyApiKey: string;
     proxyPort: number;
     ready: boolean;
+    sharedFromOtherWindow?: boolean;
     slotLabel: string;
     tunnelError?: string;
     tunnelProvider?: string;
@@ -300,6 +305,7 @@ export class SetupWizardPanel {
       proxyApiKey,
       proxyPort,
       ready,
+      sharedFromOtherWindow,
       slotLabel,
       tunnelError,
       tunnelProvider,
@@ -309,11 +315,15 @@ export class SetupWizardPanel {
       ? `<div class="status-line">
           <span class="status-dot ready"></span>
           <div>
-            <strong>Proxy and tunnel are running</strong>
+            <strong>${sharedFromOtherWindow ? "Shared proxy and tunnel are running" : "Proxy and tunnel are running"}</strong>
             <p>${escapeHtml(tunnelProvider ?? "HTTPS tunnel")} · local port ${proxyPort}</p>
           </div>
         </div>
-        <button data-command="startProxy">Restart proxy</button>`
+        ${
+          sharedFromOtherWindow
+            ? `<div class="callout">Another open Cursor window is hosting the proxy and tunnel, and this window shares it. Your models and settings are the same everywhere, so the Base URL and key below already work here — there is nothing extra to start.</div>`
+            : `<button data-command="startProxy">Restart proxy</button>`
+        }`
       : `<div class="status-line">
           <span class="status-dot"></span>
           <div>

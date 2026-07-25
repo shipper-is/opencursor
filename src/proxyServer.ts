@@ -24,6 +24,7 @@ import {
   summarizeErrorBody,
 } from "./httpUtils";
 import { classifyAgentRequest, describeAgentRequest } from "./subagentRouting";
+import { CONFIG_PATH, INSTANCE_PATH } from "./instanceCoordinator";
 import {
   DEFAULT_VARIATION,
   ReasoningEffort,
@@ -47,9 +48,22 @@ export class ProxyServer {
   private server: http.Server | undefined;
   private config: ProxyRuntimeConfig | undefined;
   private log: LogFn = () => {};
+  private tunnelInfo: { publicUrl?: string; provider?: string } = {};
+  private startedAt = 0;
+  private onConfigPushed: (() => void) | undefined;
 
   setLogger(fn: LogFn): void {
     this.log = fn;
+  }
+
+  /** Published to follower windows so they can show the shared Base URL. */
+  setTunnelInfo(publicUrl?: string, provider?: string): void {
+    this.tunnelInfo = { publicUrl, provider };
+  }
+
+  /** Notified when a follower window pushes an updated config. */
+  setConfigPushHandler(fn: () => void): void {
+    this.onConfigPushed = fn;
   }
 
   isRunning(): boolean {
@@ -88,11 +102,14 @@ export class ProxyServer {
     });
 
     const port = this.getPort() ?? config.port;
+    this.startedAt = Date.now();
     this.log(`Proxy listening on http://127.0.0.1:${port}/v1`);
     return port;
   }
 
   async stop(): Promise<void> {
+    this.tunnelInfo = {};
+
     if (!this.server) {
       return;
     }
@@ -127,6 +144,11 @@ export class ProxyServer {
 
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const path = url.pathname.replace(/\/+$/, "") || "/";
+
+      if (path === INSTANCE_PATH || path === CONFIG_PATH) {
+        await this.handleInstanceRoute(req, res, path);
+        return;
+      }
 
       if (this.config?.logRequests) {
         this.log(`${req.method} ${path}`);
@@ -182,6 +204,42 @@ export class ProxyServer {
         },
       });
     }
+  }
+
+  /**
+   * Loopback-only coordination between Cursor windows: report who owns the
+   * proxy, and let another window replace the routing table when its copy of
+   * the shared model list changes.
+   */
+  private async handleInstanceRoute(
+    req: IncomingMessage,
+    res: ServerResponse,
+    path: string
+  ): Promise<void> {
+    if (req.method === "GET" && path === INSTANCE_PATH) {
+      this.sendJson(res, 200, {
+        ownerPid: process.pid,
+        publicUrl: this.tunnelInfo.publicUrl,
+        tunnelProvider: this.tunnelInfo.provider,
+        startedAt: this.startedAt,
+      });
+      return;
+    }
+
+    if (req.method === "POST" && path === CONFIG_PATH) {
+      const body = await readBody(req);
+      const incoming = JSON.parse(body) as ProxyRuntimeConfig;
+      // Keep the port we actually bound; only the routing table is shared.
+      this.config = { ...incoming, port: this.getPort() ?? incoming.port };
+      this.log(
+        `Applied model config pushed from another Cursor window (${incoming.models.length} models)`
+      );
+      this.onConfigPushed?.();
+      this.sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    this.sendJson(res, 405, { error: `Unsupported ${req.method} ${path}` });
   }
 
   private isAuthorized(req: IncomingMessage): boolean {
