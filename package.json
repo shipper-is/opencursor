@@ -2,7 +2,7 @@
   "name": "open-cursor",
   "displayName": "Open Cursor",
   "description": "Use any supported AI provider in Cursor through one guided setup",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "shipper-is",
   "license": "MIT",
   "repository": {
@@ -35,9 +35,14 @@
     "commands": [
       {
         "command": "openCursorModels.openSetup",
-        "title": "Open Models Setup",
-        "category": "Open Cursor Models",
+        "title": "Open Settings",
+        "category": "Open Cursor",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "openCursorModels.showLogs",
+        "title": "Show Request Log",
+        "category": "Open Cursor"
       }
     ],
     "configuration": {
@@ -79,6 +84,33 @@
           "type": "string",
           "default": "",
           "description": "Model used for subagent runs when forceSubagentModel is enabled. Accepts a profile display name, slug, or the full prefixed Cursor model name."
+        },
+        "openCursorModels.subagentReasoningEffort": {
+          "type": "string",
+          "enum": [
+            "inherit",
+            "default",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default": "inherit",
+          "description": "Thinking/reasoning depth for subagent runs. \"inherit\" uses the subagent model profile's own setting."
+        },
+        "openCursorModels.subagentSpeedTier": {
+          "type": "string",
+          "enum": [
+            "inherit",
+            "default",
+            "fast",
+            "economy"
+          ],
+          "default": "inherit",
+          "description": "Capacity tier for subagent runs. \"inherit\" uses the subagent model profile's own setting."
         },
         "openCursorModels.tunnelProvider": {
           "type": "string",

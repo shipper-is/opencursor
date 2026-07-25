@@ -24,6 +24,13 @@ import {
   summarizeErrorBody,
 } from "./httpUtils";
 import { classifyAgentRequest, describeAgentRequest } from "./subagentRouting";
+import {
+  DEFAULT_VARIATION,
+  ReasoningEffort,
+  SpeedTier,
+  applyModelVariation,
+  describeVariation,
+} from "./modelVariations";
 
 type LogFn = (message: string) => void;
 
@@ -32,6 +39,8 @@ interface RouteTarget {
   baseUrl: string;
   apiKey: string;
   provider: "openai-compatible" | "anthropic";
+  reasoningEffort: ReasoningEffort;
+  speedTier: SpeedTier;
 }
 
 export class ProxyServer {
@@ -267,7 +276,10 @@ export class ProxyServer {
         accept: route.streaming ? "text/event-stream" : "application/json",
       },
       body: JSON.stringify(
-        geminiToOpenAi(payload, target.upstreamModel, route.streaming)
+        this.withVariation(
+          geminiToOpenAi(payload, target.upstreamModel, route.streaming),
+          target
+        )
       ),
     });
 
@@ -364,9 +376,12 @@ export class ProxyServer {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(
-        toAnthropicBody(
-          { ...openAiPayload, stream: false },
-          target.upstreamModel
+        this.withVariation(
+          toAnthropicBody(
+            { ...openAiPayload, stream: false },
+            target.upstreamModel
+          ),
+          target
         )
       ),
     });
@@ -457,7 +472,7 @@ export class ProxyServer {
     const streaming = payload.stream === true;
     const upstreamUrl = joinUpstreamUrl(target.baseUrl, "/chat/completions");
     const upstreamBody = JSON.stringify(
-      anthropicToOpenAi(payload, target.upstreamModel)
+      this.withVariation(anthropicToOpenAi(payload, target.upstreamModel), target)
     );
 
     const upstream = await fetchUpstream(upstreamUrl, {
@@ -579,19 +594,21 @@ export class ProxyServer {
 
     const upstreamUrl = joinUpstreamUrl(target.baseUrl, upstreamPath);
 
-    let upstreamBody: string;
+    let upstreamPayload: Record<string, unknown>;
     if (target.provider === "anthropic") {
-      upstreamBody = JSON.stringify(toAnthropicBody(payload, target.upstreamModel));
+      upstreamPayload = toAnthropicBody(payload, target.upstreamModel);
     } else if (responsesFormat) {
       if (this.config?.logRequests) {
         this.log(`Converting Responses API payload to chat/completions for upstream`);
       }
-      upstreamBody = JSON.stringify(
-        toChatCompletionsPayload(payload, target.upstreamModel)
-      );
+      upstreamPayload = toChatCompletionsPayload(payload, target.upstreamModel);
     } else {
-      upstreamBody = JSON.stringify({ ...payload, model: target.upstreamModel });
+      upstreamPayload = { ...payload, model: target.upstreamModel };
     }
+
+    const upstreamBody = JSON.stringify(
+      this.withVariation(upstreamPayload, target)
+    );
 
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -696,10 +713,19 @@ export class ProxyServer {
       return target;
     }
 
+    const subagentTarget: RouteTarget = {
+      ...overrideTarget,
+      reasoningEffort:
+        this.config?.subagentReasoningEffort ?? overrideTarget.reasoningEffort,
+      speedTier: this.config?.subagentSpeedTier ?? overrideTarget.speedTier,
+    };
+    const variation = describeVariation(subagentTarget);
+
     this.log(
-      `[${label}] subagent detected, forcing ${override} (${overrideTarget.upstreamModel}) instead of ${requestedModel}`
+      `[${label}] subagent detected, forcing ${override} (${subagentTarget.upstreamModel}` +
+        `${variation ? `, ${variation}` : ""}) instead of ${requestedModel}`
     );
-    return overrideTarget;
+    return subagentTarget;
   }
 
   private resolveTarget(modelName: string): RouteTarget | undefined {
@@ -740,7 +766,32 @@ export class ProxyServer {
       baseUrl: model.baseUrl,
       apiKey: model.apiKey,
       provider: model.provider,
+      reasoningEffort: model.reasoningEffort ?? DEFAULT_VARIATION.reasoningEffort,
+      speedTier: model.speedTier ?? DEFAULT_VARIATION.speedTier,
     };
+  }
+
+  /**
+   * Adds the profile's thinking-effort and speed-tier parameters to a fully
+   * built upstream body, in whichever dialect the upstream provider expects.
+   */
+  private withVariation(
+    body: Record<string, unknown>,
+    target: RouteTarget
+  ): Record<string, unknown> {
+    if (
+      target.reasoningEffort === "default" &&
+      target.speedTier === "default"
+    ) {
+      return body;
+    }
+
+    return applyModelVariation(body, {
+      provider: target.provider,
+      upstreamModel: target.upstreamModel,
+      reasoningEffort: target.reasoningEffort,
+      speedTier: target.speedTier,
+    });
   }
 
   private sendJson(res: ServerResponse, status: number, body: unknown): void {

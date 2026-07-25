@@ -2,6 +2,14 @@ import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { resolveModelAlias, slugifyModelName } from "./modelAliases";
 import {
+  DEFAULT_VARIATION,
+  ModelVariation,
+  ReasoningEffort,
+  SpeedTier,
+  isReasoningEffort,
+  isSpeedTier,
+} from "./modelVariations";
+import {
   ModelFormValues,
   ModelProfile,
   ProviderSlot,
@@ -61,6 +69,8 @@ export class ModelStore {
       upstreamModel,
       baseUrl: normalizeBaseUrl(values.baseUrl.trim()),
       provider: values.provider,
+      reasoningEffort: values.reasoningEffort ?? DEFAULT_VARIATION.reasoningEffort,
+      speedTier: values.speedTier ?? DEFAULT_VARIATION.speedTier,
       enabled: true,
       createdAt: now,
       updatedAt: now,
@@ -108,6 +118,8 @@ export class ModelStore {
       upstreamModel,
       baseUrl: normalizeBaseUrl(values.baseUrl.trim()),
       provider: values.provider,
+      reasoningEffort: values.reasoningEffort ?? existing.reasoningEffort,
+      speedTier: values.speedTier ?? existing.speedTier,
       updatedAt: Date.now(),
     };
 
@@ -146,6 +158,31 @@ export class ModelStore {
     return profiles[index];
   }
 
+  /**
+   * Updates just the thinking/speed variation for one profile, so the settings
+   * page can change it without walking the whole edit flow.
+   */
+  async setVariation(
+    id: string,
+    variation: Partial<ModelVariation>
+  ): Promise<StoredModelProfile | undefined> {
+    const profiles = await this.listProfiles();
+    const index = profiles.findIndex((p) => p.id === id);
+    if (index === -1) {
+      return undefined;
+    }
+
+    const current = variationFor(profiles[index]);
+    profiles[index] = {
+      ...profiles[index],
+      reasoningEffort: variation.reasoningEffort ?? current.reasoningEffort,
+      speedTier: variation.speedTier ?? current.speedTier,
+      updatedAt: Date.now(),
+    };
+    await this.context.globalState.update(MODELS_KEY, profiles);
+    return profiles[index];
+  }
+
   async buildProxyConfig(): Promise<ProxyRuntimeConfig> {
     const config = vscode.workspace.getConfiguration("openCursorModels");
     const port = config.get<number>("proxyPort", 18420);
@@ -161,6 +198,7 @@ export class ModelStore {
       const resolvedUpstream =
         resolveModelAlias(profile.upstreamModel)?.upstreamModel ??
         profile.upstreamModel;
+      const variation = variationFor(profile);
       models.push({
         cursorModelName: this.cursorNameFor(profile, modelPrefix),
         upstreamModel: resolvedUpstream,
@@ -168,6 +206,8 @@ export class ModelStore {
         apiKey,
         provider: profile.provider,
         enabled: profile.enabled,
+        reasoningEffort: variation.reasoningEffort,
+        speedTier: variation.speedTier,
       });
     }
 
@@ -177,9 +217,59 @@ export class ModelStore {
       modelPrefix,
       logRequests,
       logRequestBodies,
-      subagentModelName: this.resolveSubagentModelName(profiles, modelPrefix),
+      subagentModelName: this.isForceSubagentModelEnabled()
+        ? this.resolveSubagentModelName(profiles, modelPrefix)
+        : undefined,
+      subagentReasoningEffort: this.getSubagentEffort(),
+      subagentSpeedTier: this.getSubagentSpeedTier(),
       models,
     };
+  }
+
+  getSubagentEffort(): ReasoningEffort | undefined {
+    const value = vscode.workspace
+      .getConfiguration("openCursorModels")
+      .get<string>("subagentReasoningEffort", "inherit");
+    return isReasoningEffort(value) ? value : undefined;
+  }
+
+  getSubagentSpeedTier(): SpeedTier | undefined {
+    const value = vscode.workspace
+      .getConfiguration("openCursorModels")
+      .get<string>("subagentSpeedTier", "inherit");
+    return isSpeedTier(value) ? value : undefined;
+  }
+
+  isForceSubagentModelEnabled(): boolean {
+    return vscode.workspace
+      .getConfiguration("openCursorModels")
+      .get<boolean>("forceSubagentModel", false);
+  }
+
+  getSubagentModelSetting(): string {
+    return vscode.workspace
+      .getConfiguration("openCursorModels")
+      .get<string>("subagentModel", "");
+  }
+
+  getLogRequests(): boolean {
+    return vscode.workspace
+      .getConfiguration("openCursorModels")
+      .get<boolean>("logRequests", false);
+  }
+
+  getLogRequestBodies(): boolean {
+    return vscode.workspace
+      .getConfiguration("openCursorModels")
+      .get<boolean>("logRequestBodies", false);
+  }
+
+  /** Resolves the `subagentModel` setting against the current profiles. */
+  async getResolvedSubagentModel(): Promise<string | undefined> {
+    return this.resolveSubagentModelName(
+      await this.listProfiles(),
+      this.getModelPrefix()
+    );
   }
 
   /**
@@ -187,16 +277,11 @@ export class ModelStore {
    * name the proxy routes on. The setting accepts a profile id, slug, display
    * name, or the full prefixed name so it stays usable by hand.
    */
-  private resolveSubagentModelName(
+  resolveSubagentModelName(
     profiles: StoredModelProfile[],
     modelPrefix: string
   ): string | undefined {
-    const config = vscode.workspace.getConfiguration("openCursorModels");
-    if (!config.get<boolean>("forceSubagentModel", false)) {
-      return undefined;
-    }
-
-    const raw = config.get<string>("subagentModel", "").trim();
+    const raw = this.getSubagentModelSetting().trim();
     if (!raw) {
       return undefined;
     }
@@ -282,4 +367,19 @@ export class ModelStore {
   private secretKey(id: string): string {
     return `openCursorModels.apiKey.${id}`;
   }
+}
+
+/** Profiles created before variations existed fall back to provider defaults. */
+export function variationFor(profile: {
+  reasoningEffort?: unknown;
+  speedTier?: unknown;
+}): ModelVariation {
+  return {
+    reasoningEffort: isReasoningEffort(profile.reasoningEffort)
+      ? profile.reasoningEffort
+      : DEFAULT_VARIATION.reasoningEffort,
+    speedTier: isSpeedTier(profile.speedTier)
+      ? profile.speedTier
+      : DEFAULT_VARIATION.speedTier,
+  };
 }

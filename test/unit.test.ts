@@ -30,6 +30,11 @@ import {
   extractSystemText,
   extractToolNames,
 } from "../src/subagentRouting.ts";
+import {
+  anthropicThinkingStyle,
+  applyModelVariation,
+  normalizeEffort,
+} from "../src/modelVariations.ts";
 
 describe("joinUpstreamUrl", () => {
   it("avoids doubling /v1", () => {
@@ -542,11 +547,142 @@ describe("subagentRouting", () => {
     assert.match(signals.systemPreview, /subagent/);
   });
 
+  it("classifies Gemini and Anthropic shaped payloads too", () => {
+    assert.equal(
+      classifyAgentRequest({
+        contents: [{ role: "user", parts: [{ text: "go" }] }],
+        tools: [{ functionDeclarations: [{ name: "Read" }, { name: "Task" }] }],
+      }).role,
+      "orchestrator"
+    );
+    assert.equal(
+      classifyAgentRequest({
+        system: "subagent",
+        messages: [],
+        tools: [{ name: "Read", input_schema: {} }],
+      }).role,
+      "subagent"
+    );
+  });
+
   it("leaves tool-less requests unclassified so they are never rerouted", () => {
     assert.equal(
       classifyAgentRequest({ messages: [{ role: "user", content: "title this" }] })
         .role,
       "unknown"
     );
+  });
+});
+
+describe("modelVariations", () => {
+  it("splits Anthropic families at the 4.6 thinking cutover", () => {
+    assert.equal(anthropicThinkingStyle("claude-opus-5"), "adaptive");
+    assert.equal(anthropicThinkingStyle("claude-sonnet-5"), "adaptive");
+    assert.equal(anthropicThinkingStyle("claude-opus-4-8"), "adaptive");
+    assert.equal(anthropicThinkingStyle("claude-sonnet-4-6"), "adaptive");
+    assert.equal(anthropicThinkingStyle("claude-opus-4-5"), "extended");
+    assert.equal(
+      anthropicThinkingStyle("claude-haiku-4-5-20251001"),
+      "extended"
+    );
+  });
+
+  it("sends reasoning_effort and service_tier to OpenAI-compatible upstreams", () => {
+    const body = applyModelVariation(
+      { model: "gpt-5.6", messages: [] },
+      {
+        provider: "openai-compatible",
+        upstreamModel: "gpt-5.6",
+        reasoningEffort: "high",
+        speedTier: "fast",
+      }
+    );
+    assert.equal(body.reasoning_effort, "high");
+    assert.equal(body.service_tier, "priority");
+
+    const economy = applyModelVariation(
+      {},
+      {
+        provider: "openai-compatible",
+        upstreamModel: "gpt-5.6",
+        reasoningEffort: "default",
+        speedTier: "economy",
+      }
+    );
+    assert.equal(economy.service_tier, "flex");
+    assert.ok(!("reasoning_effort" in economy));
+  });
+
+  it("uses output_config.effort on adaptive Anthropic models", () => {
+    const body = applyModelVariation(
+      { model: "claude-opus-5" },
+      {
+        provider: "anthropic",
+        upstreamModel: "claude-opus-5",
+        reasoningEffort: "max",
+        speedTier: "default",
+      }
+    );
+    assert.deepEqual(body.output_config, { effort: "max" });
+    // budget_tokens would be rejected with a 400 on this family.
+    assert.ok(!("thinking" in body));
+  });
+
+  it("uses a thinking budget on pre-4.6 Anthropic models", () => {
+    const body = applyModelVariation(
+      { model: "claude-opus-4-5" },
+      {
+        provider: "anthropic",
+        upstreamModel: "claude-opus-4-5",
+        reasoningEffort: "high",
+        speedTier: "default",
+      }
+    );
+    assert.deepEqual(body.thinking, {
+      type: "enabled",
+      budget_tokens: 24576,
+    });
+    assert.ok(!("output_config" in body));
+  });
+
+  it("disables thinking on older Anthropic models at minimal effort", () => {
+    const body = applyModelVariation(
+      {},
+      {
+        provider: "anthropic",
+        upstreamModel: "claude-sonnet-4-5",
+        reasoningEffort: "none",
+        speedTier: "economy",
+      }
+    );
+    assert.deepEqual(body.thinking, { type: "disabled" });
+    assert.equal(body.service_tier, "standard_only");
+  });
+
+  it("clamps effort for families that cannot disable reasoning", () => {
+    assert.equal(normalizeEffort("none", "anthropic", "claude-opus-5"), "low");
+    assert.equal(
+      normalizeEffort("minimal", "openai-compatible", "grok-4.5"),
+      "low"
+    );
+    assert.equal(
+      normalizeEffort("none", "openai-compatible", "gpt-5.6"),
+      "none"
+    );
+    assert.equal(
+      normalizeEffort("none", "anthropic", "claude-opus-4-5"),
+      "none"
+    );
+  });
+
+  it("leaves the body untouched when nothing is configured", () => {
+    const original = { model: "gpt-5.6", messages: [] };
+    const body = applyModelVariation(original, {
+      provider: "openai-compatible",
+      upstreamModel: "gpt-5.6",
+      reasoningEffort: "default",
+      speedTier: "default",
+    });
+    assert.deepEqual(body, original);
   });
 });

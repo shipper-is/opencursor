@@ -1,3 +1,5 @@
+import type { ReasoningEffort, SpeedTier } from "./modelVariations";
+
 export type ProviderType = "openai-compatible" | "anthropic";
 
 /** Which of Cursor's BYOK key slots custom models are routed through. */
@@ -24,6 +26,10 @@ export const SLOT_LABELS: Record<ProviderSlot, string> = {
 export interface ModelProfile {
   id: string;
   displayName: string;
+  /** Thinking/reasoning depth requested from the upstream model. */
+  reasoningEffort?: ReasoningEffort;
+  /** Whether to ask for fast (priority) or economy capacity. */
+  speedTier?: SpeedTier;
   /**
    * Readable slug used in Cursor model names after the slot prefix
    * (e.g. `claude-sonnet-5` → `gemini-oc-claude-sonnet-5`). Older
@@ -54,6 +60,9 @@ export interface ProxyRuntimeConfig {
    * Cursor-facing model name, ignoring the orchestrator's choice.
    */
   subagentModelName?: string;
+  /** Variation overrides applied to subagent runs, when set. */
+  subagentReasoningEffort?: ReasoningEffort;
+  subagentSpeedTier?: SpeedTier;
   models: Array<{
     cursorModelName: string;
     upstreamModel: string;
@@ -61,6 +70,8 @@ export interface ProxyRuntimeConfig {
     apiKey: string;
     provider: ProviderType;
     enabled: boolean;
+    reasoningEffort: ReasoningEffort;
+    speedTier: SpeedTier;
   }>;
 }
 
@@ -70,6 +81,8 @@ export interface ModelFormValues {
   baseUrl: string;
   apiKey: string;
   provider: ProviderType;
+  reasoningEffort?: ReasoningEffort;
+  speedTier?: SpeedTier;
 }
 
 export function cursorModelName(prefix: string, id: string): string {

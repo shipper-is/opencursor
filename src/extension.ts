@@ -1,10 +1,21 @@
 import * as vscode from "vscode";
-import { ModelStore } from "./modelStore";
+import { ModelStore, variationFor } from "./modelStore";
 import { promptForModel, testModelConnection } from "./modelActions";
 import { ProxyServer } from "./proxyServer";
 import { SetupWizardOptions, SetupWizardPanel } from "./setupWizard";
+import { isReasoningEffort, isSpeedTier } from "./modelVariations";
 import { publicBaseUrl, ProviderSlot } from "./types";
 import { TunnelManager } from "./tunnelManager";
+
+/** Settings the settings page is allowed to write. */
+const WRITABLE_SETTINGS = new Set([
+  "logRequests",
+  "logRequestBodies",
+  "forceSubagentModel",
+  "subagentModel",
+  "subagentReasoningEffort",
+  "subagentSpeedTier",
+]);
 
 const ONBOARDING_SHOWN_KEY = "openCursorModels.onboardingShown";
 
@@ -60,6 +71,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand(
       "openCursorModels.setProviderSlot",
       (slot: ProviderSlot) => setProviderSlot(slot)
+    ),
+    vscode.commands.registerCommand(
+      "openCursorModels.setModelVariation",
+      (id: string, field: string, value: string) =>
+        setModelVariation(id, field, value)
+    ),
+    vscode.commands.registerCommand(
+      "openCursorModels.updateSetting",
+      (key: string, value: string | boolean) => updateSetting(key, value)
+    ),
+    vscode.commands.registerCommand("openCursorModels.showLogs", () =>
+      outputChannel.show(true)
     )
   );
 
@@ -82,6 +105,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         event.affectsConfiguration("openCursorModels.logRequestBodies") ||
         event.affectsConfiguration("openCursorModels.forceSubagentModel") ||
         event.affectsConfiguration("openCursorModels.subagentModel") ||
+        event.affectsConfiguration("openCursorModels.subagentReasoningEffort") ||
+        event.affectsConfiguration("openCursorModels.subagentSpeedTier") ||
         event.affectsConfiguration("openCursorModels.modelPrefix") ||
         event.affectsConfiguration("openCursorModels.providerSlot")
       ) {
@@ -129,15 +154,32 @@ async function buildSetupOptions(): Promise<SetupWizardOptions> {
     tunnelProvider: tunnelManager.getProvider(),
     tunnelError: lastTunnelError ?? lastProxyError,
     providerSlot: modelStore.getProviderSlot(),
-    models: profiles.map((profile) => ({
-      id: profile.id,
-      displayName: profile.displayName,
-      cursorName: modelStore.cursorNameFor(profile),
-      upstreamModel: profile.upstreamModel,
-      baseUrl: profile.baseUrl,
-      provider: profile.provider,
-      enabled: profile.enabled,
-    })),
+    subagent: {
+      enabled: modelStore.isForceSubagentModelEnabled(),
+      model: modelStore.getSubagentModelSetting(),
+      resolvedModel: await modelStore.getResolvedSubagentModel(),
+      reasoningEffort: modelStore.getSubagentEffort(),
+      speedTier: modelStore.getSubagentSpeedTier(),
+    },
+    diagnostics: {
+      logRequests: modelStore.getLogRequests(),
+      logRequestBodies: modelStore.getLogRequestBodies(),
+    },
+    models: profiles.map((profile) => {
+      const variation = variationFor(profile);
+      return {
+        id: profile.id,
+        displayName: profile.displayName,
+        cursorName: modelStore.cursorNameFor(profile),
+        slug: profile.cursorSlug ?? profile.id,
+        upstreamModel: profile.upstreamModel,
+        baseUrl: profile.baseUrl,
+        provider: profile.provider,
+        enabled: profile.enabled,
+        reasoningEffort: variation.reasoningEffort,
+        speedTier: variation.speedTier,
+      };
+    }),
   };
 }
 
@@ -295,6 +337,36 @@ async function testModel(id: string): Promise<void> {
       `${profile.displayName}: ${result.message}`
     );
   }
+}
+
+async function setModelVariation(
+  id: string,
+  field: string,
+  value: string
+): Promise<void> {
+  if (field === "reasoningEffort" && isReasoningEffort(value)) {
+    await modelStore.setVariation(id, { reasoningEffort: value });
+  } else if (field === "speedTier" && isSpeedTier(value)) {
+    await modelStore.setVariation(id, { speedTier: value });
+  } else {
+    return;
+  }
+
+  await refreshProxyConfig();
+}
+
+async function updateSetting(
+  key: string,
+  value: string | boolean
+): Promise<void> {
+  if (!WRITABLE_SETTINGS.has(key)) {
+    return;
+  }
+
+  await vscode.workspace
+    .getConfiguration("openCursorModels")
+    .update(key, value, vscode.ConfigurationTarget.Global);
+  // The configuration listener handles refreshing the proxy and the page.
 }
 
 async function setProviderSlot(slot: ProviderSlot): Promise<void> {
