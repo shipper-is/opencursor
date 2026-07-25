@@ -118,7 +118,7 @@
     "vsix:path": "node -p \"var p=require('./package.json'); p.name + '-' + p.version + '.vsix'\""
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.1.1",
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
