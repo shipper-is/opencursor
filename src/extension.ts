@@ -79,6 +79,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       if (
         event.affectsConfiguration("openCursorModels.logRequests") ||
+        event.affectsConfiguration("openCursorModels.logRequestBodies") ||
+        event.affectsConfiguration("openCursorModels.forceSubagentModel") ||
+        event.affectsConfiguration("openCursorModels.subagentModel") ||
         event.affectsConfiguration("openCursorModels.modelPrefix") ||
         event.affectsConfiguration("openCursorModels.providerSlot")
       ) {

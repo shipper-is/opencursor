@@ -23,6 +23,7 @@ import {
   readBody,
   summarizeErrorBody,
 } from "./httpUtils";
+import { classifyAgentRequest, describeAgentRequest } from "./subagentRouting";
 
 type LogFn = (message: string) => void;
 
@@ -234,7 +235,7 @@ export class ProxyServer {
       return;
     }
 
-    const target = this.resolveTarget(route.model);
+    const target = this.routeFor(route.model, payload, "google-slot");
     if (!target) {
       this.log(`No route for Google-slot model "${route.model}"`);
       this.sendJson(res, 404, {
@@ -435,7 +436,7 @@ export class ProxyServer {
     }
 
     const requestedModel = String(payload.model ?? "");
-    const target = this.resolveTarget(requestedModel);
+    const target = this.routeFor(requestedModel, payload, "anthropic-slot");
 
     if (!target) {
       this.log(`No route for Anthropic-slot model "${requestedModel}"`);
@@ -548,7 +549,7 @@ export class ProxyServer {
     }
 
     const requestedModel = String(payload.model ?? "");
-    const target = this.resolveTarget(requestedModel);
+    const target = this.routeFor(requestedModel, payload, "openai-slot");
 
     if (!target) {
       this.log(`No route for model "${requestedModel}"`);
@@ -663,6 +664,44 @@ export class ProxyServer {
     res.end(text);
   }
 
+  /**
+   * Resolves the upstream route for a request, applying the subagent model
+   * override when the payload looks like a Task-tool subagent run.
+   */
+  private routeFor(
+    requestedModel: string,
+    payload: Record<string, unknown>,
+    label: string
+  ): RouteTarget | undefined {
+    const target = this.resolveTarget(requestedModel);
+    if (!target) {
+      return undefined;
+    }
+
+    const signals = classifyAgentRequest(payload);
+    if (this.config?.logRequestBodies) {
+      this.log(`[${label}] ${requestedModel} ${describeAgentRequest(signals)}`);
+    }
+
+    const override = this.config?.subagentModelName;
+    if (signals.role !== "subagent" || !override || override === requestedModel) {
+      return target;
+    }
+
+    const overrideTarget = this.resolveTarget(override);
+    if (!overrideTarget) {
+      this.log(
+        `Subagent override model "${override}" is not an enabled profile; keeping ${requestedModel}`
+      );
+      return target;
+    }
+
+    this.log(
+      `[${label}] subagent detected, forcing ${override} (${overrideTarget.upstreamModel}) instead of ${requestedModel}`
+    );
+    return overrideTarget;
+  }
+
   private resolveTarget(modelName: string): RouteTarget | undefined {
     const config = this.config;
     if (!config) {
@@ -673,28 +712,35 @@ export class ProxyServer {
       (m) => m.enabled && m.cursorModelName === modelName
     );
     if (direct) {
-      return {
-        upstreamModel: direct.upstreamModel,
-        baseUrl: direct.baseUrl,
-        apiKey: direct.apiKey,
-        provider: direct.provider,
-      };
+      return this.toRouteTarget(direct);
     }
 
-    // Also match if user passes the profile id without prefix
-    const byId = config.models.find(
-      (m) => m.enabled && modelName === m.cursorModelName.replace(config.modelPrefix, "")
+    // Match profile id / readable slug without the slot prefix
+    const withoutPrefix = modelName.startsWith(config.modelPrefix)
+      ? modelName.slice(config.modelPrefix.length)
+      : modelName;
+    const bySlug = config.models.find(
+      (m) =>
+        m.enabled &&
+        (modelName === m.cursorModelName.replace(config.modelPrefix, "") ||
+          withoutPrefix === m.cursorModelName.replace(config.modelPrefix, ""))
     );
-    if (byId) {
-      return {
-        upstreamModel: byId.upstreamModel,
-        baseUrl: byId.baseUrl,
-        apiKey: byId.apiKey,
-        provider: byId.provider,
-      };
+    if (bySlug) {
+      return this.toRouteTarget(bySlug);
     }
 
     return undefined;
+  }
+
+  private toRouteTarget(
+    model: ProxyRuntimeConfig["models"][number]
+  ): RouteTarget {
+    return {
+      upstreamModel: model.upstreamModel,
+      baseUrl: model.baseUrl,
+      apiKey: model.apiKey,
+      provider: model.provider,
+    };
   }
 
   private sendJson(res: ServerResponse, status: number, body: unknown): void {

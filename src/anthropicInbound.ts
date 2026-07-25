@@ -7,6 +7,11 @@
  * switch stay off so built-in Cursor models keep working.
  */
 
+import {
+  AccumulatedToolCall,
+  ToolCallAccumulator,
+} from "./toolCallAccumulator";
+
 interface AnthropicToolUseBlock extends Record<string, unknown> {
   type: "tool_use";
   id: string;
@@ -186,10 +191,8 @@ export class AnthropicStreamTranslator {
   private started = false;
   private textBlockOpen = false;
   private nextIndex = 0;
-  private readonly toolBlocks = new Map<
-    number,
-    { index: number; id: string; name: string }
-  >();
+  private readonly toolCalls = new ToolCallAccumulator();
+  private readonly blockIndexes = new Map<AccumulatedToolCall, number>();
   private finished = false;
   private usage: { input_tokens: number; output_tokens: number } = {
     input_tokens: 0,
@@ -254,13 +257,14 @@ export class AnthropicStreamTranslator {
       this.textBlockOpen = false;
     }
 
-    for (const block of this.toolBlocks.values()) {
+    for (const index of this.blockIndexes.values()) {
       out += event("content_block_stop", {
         type: "content_block_stop",
-        index: block.index,
+        index,
       });
     }
-    this.toolBlocks.clear();
+    this.blockIndexes.clear();
+    this.toolCalls.clear();
 
     out += event("message_delta", {
       type: "message_delta",
@@ -313,40 +317,31 @@ export class AnthropicStreamTranslator {
 
     const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
     for (const callRaw of toolCalls) {
-      const call = (callRaw ?? {}) as Record<string, unknown>;
-      const slot = Number(call.index ?? 0);
-      let block = this.toolBlocks.get(slot);
+      const { call, opened, added } = this.toolCalls.add(
+        (callRaw ?? {}) as Record<string, unknown>
+      );
 
-      if (!block) {
+      if (opened) {
         const index = this.nextIndex === 0 ? 1 : this.nextIndex;
         this.nextIndex = index + 1;
-        block = {
-          index,
-          id: String(call.id ?? `toolu_${Date.now()}_${slot}`),
-          name: String(
-            (call.function as Record<string, unknown> | undefined)?.name ?? ""
-          ),
-        };
-        this.toolBlocks.set(slot, block);
+        this.blockIndexes.set(call, index);
         out += event("content_block_start", {
           type: "content_block_start",
-          index: block.index,
+          index,
           content_block: {
             type: "tool_use",
-            id: block.id,
-            name: block.name,
+            id: call.id ?? `toolu_${Date.now()}_${index}`,
+            name: call.name,
             input: {},
           },
         });
       }
 
-      const fn = call.function as Record<string, unknown> | undefined;
-      const args = typeof fn?.arguments === "string" ? fn.arguments : "";
-      if (args) {
+      if (added) {
         out += event("content_block_delta", {
           type: "content_block_delta",
-          index: block.index,
-          delta: { type: "input_json_delta", partial_json: args },
+          index: this.blockIndexes.get(call) ?? 1,
+          delta: { type: "input_json_delta", partial_json: added },
         });
       }
       this.stopReason = "tool_use";

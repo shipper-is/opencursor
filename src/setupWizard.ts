@@ -141,7 +141,7 @@ export class SetupWizardPanel {
         ? `<div class="empty">
             <div class="empty-icon">＋</div>
             <strong>No models added yet</strong>
-            <p>Add the provider URL, upstream model ID, and provider API key. Keys stay in Cursor's secure secret storage.</p>
+            <p>Pick a known Claude model or enter a custom provider URL, model ID, and API key. Keys stay in Cursor's secure secret storage.</p>
             <button class="primary" data-command="addModel">Add your first model</button>
           </div>`
         : models
@@ -175,7 +175,10 @@ export class SetupWizardPanel {
             ${enabledModels
               .map(
                 (model) => `<div class="copy-row">
-                  <code>${escapeHtml(model.cursorName)}</code>
+                  <div>
+                    <code>${escapeHtml(model.cursorName)}</code>
+                    <div class="model-meta">${escapeHtml(model.displayName)} → ${escapeHtml(model.upstreamModel)}</div>
+                  </div>
                   <button data-copy="${escapeHtml(model.cursorName)}" data-label="model name">Copy</button>
                 </div>`
               )
@@ -424,7 +427,7 @@ export class SetupWizardPanel {
       <div class="step-number">4</div>
       <div class="step-body">
         <h2>Add model names to Cursor</h2>
-        <p>In Cursor Settings → Models, choose <strong>Add model</strong> and paste each exact name.</p>
+        <p>In Cursor Settings → Models, choose <strong>Add model</strong> and paste each exact name. OpenCursor routes that readable name to the upstream model ID automatically.</p>
         ${modelNames}
       </div>
     </section>

@@ -1,5 +1,6 @@
 import * as crypto from "crypto";
 import * as vscode from "vscode";
+import { resolveModelAlias, slugifyModelName } from "./modelAliases";
 import {
   ModelFormValues,
   ModelProfile,
@@ -41,10 +42,23 @@ export class ModelStore {
 
   async addProfile(values: ModelFormValues): Promise<StoredModelProfile> {
     const now = Date.now();
+    const displayName =
+      values.displayName.trim() || values.upstreamModel.trim();
+    const resolved =
+      resolveModelAlias(values.upstreamModel) ?? resolveModelAlias(displayName);
+    const upstreamModel =
+      resolveModelAlias(values.upstreamModel.trim())?.upstreamModel ||
+      values.upstreamModel.trim() ||
+      resolved?.upstreamModel ||
+      displayName;
+    const cursorSlug = await this.allocateCursorSlug(
+      resolveModelAlias(displayName)?.cursorSlug ?? displayName
+    );
     const profile: StoredModelProfile = {
-      id: generateId(values.displayName || values.upstreamModel),
-      displayName: values.displayName.trim() || values.upstreamModel.trim(),
-      upstreamModel: values.upstreamModel.trim(),
+      id: generateId(displayName),
+      displayName,
+      cursorSlug,
+      upstreamModel,
       baseUrl: normalizeBaseUrl(values.baseUrl.trim()),
       provider: values.provider,
       enabled: true,
@@ -71,10 +85,27 @@ export class ModelStore {
     }
 
     const existing = profiles[index];
+    const displayName =
+      values.displayName.trim() || values.upstreamModel.trim();
+    const resolved =
+      resolveModelAlias(values.upstreamModel) ?? resolveModelAlias(displayName);
+    const upstreamModel =
+      resolveModelAlias(values.upstreamModel.trim())?.upstreamModel ||
+      values.upstreamModel.trim() ||
+      resolved?.upstreamModel ||
+      displayName;
+    // Keep the Cursor-facing slug stable so existing Cursor model entries keep working.
+    const cursorSlug =
+      existing.cursorSlug ??
+      (await this.allocateCursorSlug(
+        resolveModelAlias(displayName)?.cursorSlug ?? displayName,
+        id
+      ));
     const updated: StoredModelProfile = {
       ...existing,
-      displayName: values.displayName.trim() || values.upstreamModel.trim(),
-      upstreamModel: values.upstreamModel.trim(),
+      displayName,
+      cursorSlug,
+      upstreamModel,
       baseUrl: normalizeBaseUrl(values.baseUrl.trim()),
       provider: values.provider,
       updatedAt: Date.now(),
@@ -120,15 +151,19 @@ export class ModelStore {
     const port = config.get<number>("proxyPort", 18420);
     const modelPrefix = this.getModelPrefix();
     const logRequests = config.get<boolean>("logRequests", false);
+    const logRequestBodies = config.get<boolean>("logRequestBodies", false);
     const proxyApiKey = await this.getProxyApiKey();
     const profiles = await this.listProfiles();
 
     const models = [];
     for (const profile of profiles) {
       const apiKey = (await this.getApiKey(profile.id)) ?? "";
+      const resolvedUpstream =
+        resolveModelAlias(profile.upstreamModel)?.upstreamModel ??
+        profile.upstreamModel;
       models.push({
-        cursorModelName: `${modelPrefix}${profile.id}`,
-        upstreamModel: profile.upstreamModel,
+        cursorModelName: this.cursorNameFor(profile, modelPrefix),
+        upstreamModel: resolvedUpstream,
         baseUrl: profile.baseUrl,
         apiKey,
         provider: profile.provider,
@@ -136,7 +171,79 @@ export class ModelStore {
       });
     }
 
-    return { port, proxyApiKey, modelPrefix, logRequests, models };
+    return {
+      port,
+      proxyApiKey,
+      modelPrefix,
+      logRequests,
+      logRequestBodies,
+      subagentModelName: this.resolveSubagentModelName(profiles, modelPrefix),
+      models,
+    };
+  }
+
+  /**
+   * Turns the user-facing `subagentModel` setting into the Cursor-facing model
+   * name the proxy routes on. The setting accepts a profile id, slug, display
+   * name, or the full prefixed name so it stays usable by hand.
+   */
+  private resolveSubagentModelName(
+    profiles: StoredModelProfile[],
+    modelPrefix: string
+  ): string | undefined {
+    const config = vscode.workspace.getConfiguration("openCursorModels");
+    if (!config.get<boolean>("forceSubagentModel", false)) {
+      return undefined;
+    }
+
+    const raw = config.get<string>("subagentModel", "").trim();
+    if (!raw) {
+      return undefined;
+    }
+
+    const withoutPrefix = raw.startsWith(modelPrefix)
+      ? raw.slice(modelPrefix.length)
+      : raw;
+    const match = profiles.find(
+      (profile) =>
+        profile.id === withoutPrefix ||
+        profile.cursorSlug === withoutPrefix ||
+        profile.displayName === raw ||
+        this.cursorNameFor(profile, modelPrefix) === raw
+    );
+
+    return match ? this.cursorNameFor(match, modelPrefix) : undefined;
+  }
+
+  /**
+   * Prefer a readable slug (e.g. claude-sonnet-5) for Cursor; fall back to
+   * the opaque profile id for older profiles.
+   */
+  async allocateCursorSlug(
+    preferredName: string,
+    excludeId?: string
+  ): Promise<string> {
+    const alias = resolveModelAlias(preferredName);
+    const base = slugifyModelName(alias?.cursorSlug ?? preferredName);
+    const profiles = await this.listProfiles();
+    const used = new Set(
+      profiles
+        .filter((profile) => profile.id !== excludeId)
+        .flatMap((profile) => [profile.cursorSlug, profile.id].filter(Boolean) as string[])
+    );
+
+    if (!used.has(base)) {
+      return base;
+    }
+
+    for (let attempt = 0; attempt < 24; attempt++) {
+      const candidate = `${base}-${Math.random().toString(36).slice(2, 6)}`;
+      if (!used.has(candidate)) {
+        return candidate;
+      }
+    }
+
+    return generateId(preferredName);
   }
 
   /**
@@ -168,8 +275,8 @@ export class ModelStore {
       .get<number>("proxyPort", 18420);
   }
 
-  cursorNameFor(profile: ModelProfile): string {
-    return `${this.getModelPrefix()}${profile.id}`;
+  cursorNameFor(profile: ModelProfile, modelPrefix = this.getModelPrefix()): string {
+    return `${modelPrefix}${profile.cursorSlug ?? profile.id}`;
   }
 
   private secretKey(id: string): string {

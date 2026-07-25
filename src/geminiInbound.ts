@@ -6,6 +6,12 @@
  * starting with `gemini-`, leaving both the OpenAI and Anthropic keys free.
  */
 
+import {
+  AccumulatedToolCall,
+  ToolCallAccumulator,
+  parseToolArguments,
+} from "./toolCallAccumulator";
+
 export interface GeminiRoute {
   model: string;
   streaming: boolean;
@@ -46,6 +52,11 @@ export function geminiToOpenAi(
 
   const contents = Array.isArray(payload.contents) ? payload.contents : [];
 
+  // Calls and their responses are matched by position within each function
+  // name, so both directions need their own occurrence counters.
+  const callCounts = new Map<string, number>();
+  const responseCounts = new Map<string, number>();
+
   for (const entryRaw of contents) {
     if (!entryRaw || typeof entryRaw !== "object") {
       continue;
@@ -74,7 +85,7 @@ export function geminiToOpenAi(
       if (functionCall) {
         const name = String(functionCall.name ?? "");
         toolCalls.push({
-          id: callId(name),
+          id: callId(name, functionCall.id, callCounts),
           type: "function",
           function: {
             name,
@@ -91,7 +102,7 @@ export function geminiToOpenAi(
         const name = String(functionResponse.name ?? "");
         messages.push({
           role: "tool",
-          tool_call_id: callId(name),
+          tool_call_id: callId(name, functionResponse.id, responseCounts),
           content:
             typeof functionResponse.response === "string"
               ? functionResponse.response
@@ -195,8 +206,7 @@ export function openAiToGeminiResponse(
  */
 export class GeminiStreamTranslator {
   private buffer = "";
-  private readonly toolNames = new Map<number, string>();
-  private readonly toolArgs = new Map<number, string>();
+  private readonly toolCalls = new ToolCallAccumulator();
   private usage: Record<string, unknown> | undefined;
   private finishReason: string | undefined;
 
@@ -238,17 +248,8 @@ export class GeminiStreamTranslator {
   finish(): Record<string, unknown> {
     const parts: Array<Record<string, unknown>> = [];
 
-    for (const [index, name] of this.toolNames) {
-      let args: unknown = {};
-      const raw = this.toolArgs.get(index) ?? "";
-      if (raw.trim()) {
-        try {
-          args = JSON.parse(raw);
-        } catch {
-          args = { _raw: raw };
-        }
-      }
-      parts.push({ functionCall: { name, args } });
+    for (const call of this.toolCalls.list()) {
+      parts.push({ functionCall: geminiFunctionCall(call) });
     }
 
     return {
@@ -287,16 +288,7 @@ export class GeminiStreamTranslator {
     // complete, so they are buffered and emitted by finish().
     const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
     for (const callRaw of toolCalls) {
-      const call = (callRaw ?? {}) as Record<string, unknown>;
-      const index = Number(call.index ?? 0);
-      const fn = call.function as Record<string, unknown> | undefined;
-
-      if (typeof fn?.name === "string" && fn.name) {
-        this.toolNames.set(index, fn.name);
-      }
-      if (typeof fn?.arguments === "string" && fn.arguments) {
-        this.toolArgs.set(index, (this.toolArgs.get(index) ?? "") + fn.arguments);
-      }
+      this.toolCalls.add((callRaw ?? {}) as Record<string, unknown>);
     }
 
     const text = typeof delta.content === "string" ? delta.content : "";
@@ -343,18 +335,29 @@ function collectFunctionDeclarations(
 
 function functionCallPart(call: Record<string, unknown>): Record<string, unknown> {
   const fn = call.function as Record<string, unknown> | undefined;
-  let args: unknown = {};
-  const raw = fn?.arguments;
+  const raw = typeof fn?.arguments === "string" ? fn.arguments : "";
 
-  if (typeof raw === "string" && raw.trim()) {
-    try {
-      args = JSON.parse(raw);
-    } catch {
-      args = { _raw: raw };
-    }
+  return geminiFunctionCall({
+    id: typeof call.id === "string" ? call.id : undefined,
+    name: String(fn?.name ?? ""),
+    arguments: raw,
+  });
+}
+
+/**
+ * Carries the upstream call id through as `functionCall.id` when there is one,
+ * so a client that echoes it back lets tool results be matched exactly instead
+ * of by name and position.
+ */
+function geminiFunctionCall(call: AccumulatedToolCall): Record<string, unknown> {
+  const part: Record<string, unknown> = {
+    name: call.name,
+    args: parseToolArguments(call.arguments),
+  };
+  if (call.id) {
+    part.id = call.id;
   }
-
-  return { name: String(fn?.name ?? ""), args };
+  return part;
 }
 
 function extractText(value: unknown): string {
@@ -380,11 +383,24 @@ function extractText(value: unknown): string {
 }
 
 /**
- * Gemini identifies tool results by function name rather than a call id, so
- * ids are derived deterministically to survive the round trip.
+ * Gemini usually identifies tool results by function name rather than a call
+ * id, so ids are derived deterministically to survive the round trip. The
+ * occurrence counter keeps parallel calls to the same function distinct —
+ * without it an upstream sees one assistant message carrying two tool_calls
+ * with the same id, rejects the turn, and the agent retries it forever.
  */
-function callId(name: string): string {
-  return `call_${name}`;
+function callId(
+  name: string,
+  explicitId: unknown,
+  counts: Map<string, number>
+): string {
+  const occurrence = (counts.get(name) ?? 0) + 1;
+  counts.set(name, occurrence);
+
+  if (typeof explicitId === "string" && explicitId) {
+    return explicitId;
+  }
+  return `call_${name}_${occurrence}`;
 }
 
 function mapFinishReason(reason: unknown): string {

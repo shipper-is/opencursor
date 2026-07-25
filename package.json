@@ -65,6 +65,21 @@
           "default": false,
           "description": "Log proxied request paths and routes to the Open Cursor Models output channel."
         },
+        "openCursorModels.logRequestBodies": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log each proxied request's detected agent role, tool names, turn count, and a system-prompt preview. Useful for verifying subagent detection; may include prompt text in the output channel."
+        },
+        "openCursorModels.forceSubagentModel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Route requests detected as subagent (Task tool) runs to a fixed model, ignoring the model the orchestrating agent selected. Detection is heuristic — verify with logRequestBodies first."
+        },
+        "openCursorModels.subagentModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model used for subagent runs when forceSubagentModel is enabled. Accepts a profile display name, slug, or the full prefixed Cursor model name."
+        },
         "openCursorModels.tunnelProvider": {
           "type": "string",
           "enum": [

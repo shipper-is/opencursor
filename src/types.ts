@@ -24,6 +24,12 @@ export const SLOT_LABELS: Record<ProviderSlot, string> = {
 export interface ModelProfile {
   id: string;
   displayName: string;
+  /**
+   * Readable slug used in Cursor model names after the slot prefix
+   * (e.g. `claude-sonnet-5` → `gemini-oc-claude-sonnet-5`). Older
+   * profiles may omit this and fall back to `id`.
+   */
+  cursorSlug?: string;
   /** Model name sent to the upstream provider */
   upstreamModel: string;
   baseUrl: string;
@@ -41,6 +47,13 @@ export interface ProxyRuntimeConfig {
   proxyApiKey: string;
   modelPrefix: string;
   logRequests: boolean;
+  /** Log tool names and system-prompt previews for each proxied request. */
+  logRequestBodies: boolean;
+  /**
+   * When set, requests classified as subagent runs are forced onto this
+   * Cursor-facing model name, ignoring the orchestrator's choice.
+   */
+  subagentModelName?: string;
   models: Array<{
     cursorModelName: string;
     upstreamModel: string;
