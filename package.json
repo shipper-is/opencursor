@@ -83,7 +83,7 @@
         "openCursorModels.subagentModel": {
           "type": "string",
           "default": "",
-          "description": "Model used for subagent runs when forceSubagentModel is enabled. Accepts a profile display name, slug, or the full prefixed Cursor model name."
+          "description": "Model used for subagent runs when forceSubagentModel is enabled. Accepts a profile display name, slug, or the full prefixed Cursor model name, matched case-insensitively. Must name one of your own models — Cursor's built-in models cannot be targeted, because the proxy has no way to hand a request back to Cursor's own inference."
         },
         "openCursorModels.subagentReasoningEffort": {
           "type": "string",

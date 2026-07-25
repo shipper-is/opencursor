@@ -483,27 +483,29 @@ export class SetupWizardPanel {
     enabledModels: SetupModel[],
     diagnostics: DiagnosticsSettings
   ): string {
-    const modelOptions = [
-      `<option value=""${subagent.model ? "" : " selected"}>— Not set —</option>`,
-      ...enabledModels.map(
+    const modelOptions = enabledModels
+      .map(
         (model) =>
-          `<option value="${escapeHtml(model.slug)}"${
-            model.slug === subagent.model ||
-            model.cursorName === subagent.resolvedModel
-              ? " selected"
-              : ""
-          }>${escapeHtml(model.displayName)} (${escapeHtml(model.cursorName)})</option>`
-      ),
-    ].join("");
+          `<option value="${escapeHtml(model.slug)}">${escapeHtml(model.displayName)} (${escapeHtml(model.cursorName)})</option>`
+      )
+      .join("");
+
+    // Every spelling `resolveSubagentModelName` accepts, so the field can warn
+    // about an unusable value before it is committed.
+    const knownTargets = enabledModels.flatMap((model) => [
+      model.slug,
+      model.cursorName,
+      model.displayName,
+    ]);
 
     const unresolved =
       subagent.enabled && subagent.model && !subagent.resolvedModel
-        ? `<div class="callout warn">"${escapeHtml(subagent.model)}" doesn't match an enabled model, so subagent requests will keep whatever model the orchestrator picked.</div>`
+        ? `<div class="callout warn">"${escapeHtml(subagent.model)}" doesn't match an enabled model, so subagent requests will keep whatever model the orchestrator picked. The override can only target a model you added here — the proxy has no way to hand a request back to Cursor's built-in models.</div>`
         : "";
 
     const inactive =
       subagent.enabled && !subagent.model
-        ? `<div class="callout warn">Pick a model below — the override is on but has no target.</div>`
+        ? `<div class="callout warn">Pick or type a model below — the override is on but has no target.</div>`
         : "";
 
     return `<section class="tab-panel${this.activeTab === "subagents" ? " active" : ""}" data-panel="subagents">
@@ -519,11 +521,20 @@ export class SetupWizardPanel {
           ${inactive}
           ${unresolved}
           <div class="variation-row">
-            <label>
+            <label class="combo">
               <span>Subagent model</span>
-              <select data-setting="subagentModel" ${subagent.enabled ? "" : "disabled"}>
-                ${modelOptions}
-              </select>
+              <input
+                type="text"
+                list="subagent-model-options"
+                placeholder="Type or pick a model"
+                spellcheck="false"
+                autocomplete="off"
+                data-setting="subagentModel"
+                data-known="${escapeHtml(JSON.stringify(knownTargets))}"
+                value="${escapeHtml(subagent.model)}"
+                ${subagent.enabled ? "" : "disabled"} />
+              <datalist id="subagent-model-options">${modelOptions}</datalist>
+              <span class="field-status" data-status-for="subagentModel"></span>
             </label>
             <label>
               <span>Thinking / reasoning</span>
@@ -728,7 +739,7 @@ function styles(): string {
     }
     .progress-item.done { border-color: var(--vscode-testing-iconPassed); color: var(--vscode-foreground); }
     .progress-item strong { display: block; font-size: 13px; }
-    button, select {
+    button, select, input[type="text"] {
       min-height: 30px;
       border: 1px solid var(--vscode-button-border, transparent);
       border-radius: 4px;
@@ -741,9 +752,22 @@ function styles(): string {
     button:hover { background: var(--vscode-button-secondaryHoverBackground); }
     button.primary { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
     button.primary:hover { background: var(--vscode-button-hoverBackground); }
-    button:disabled, select:disabled { cursor: not-allowed; opacity: 0.5; }
+    button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity: 0.5; }
     button.danger { color: var(--vscode-errorForeground); }
     select { min-width: 170px; color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); }
+    input[type="text"] {
+      min-width: 240px;
+      border-color: var(--vscode-input-border, var(--vscode-panel-border));
+      color: var(--vscode-input-foreground);
+      background: var(--vscode-input-background);
+      cursor: text;
+    }
+    input[type="text"]:focus { outline: 1px solid var(--vscode-focusBorder); }
+    .combo { position: relative; }
+    .variation-row label > .field-status { font-size: 11px; text-transform: none; letter-spacing: normal; font-weight: 400; }
+    .variation-row label > .field-status:empty { display: none; }
+    .variation-row label > .field-status.ok { color: var(--vscode-testing-iconPassed); }
+    .variation-row label > .field-status.warn { color: var(--vscode-editorWarning-foreground); }
     code { color: var(--vscode-textPreformat-foreground); font-family: var(--vscode-editor-font-family); overflow-wrap: anywhere; }
     .model-card, .panel, .copy-row, .pending-field {
       border: 1px solid var(--vscode-panel-border);
@@ -832,6 +856,37 @@ function script(): string {
       }
     });
 
+    // Mirrors resolveSubagentModelName loosely: enough to flag a typo before the
+    // value is committed, without a round trip to the extension.
+    const showFieldStatus = (el) => {
+      const status = document.querySelector('[data-status-for="' + el.dataset.setting + '"]');
+      if (!status) return;
+
+      const value = el.value.trim();
+      const known = JSON.parse(el.dataset.known || '[]');
+      if (!value) {
+        status.className = 'field-status warn';
+        status.textContent = 'No target set — subagents keep the orchestrator\\'s model.';
+        return;
+      }
+
+      const match = known.some((name) => name.toLowerCase() === value.toLowerCase());
+      status.className = 'field-status ' + (match ? 'ok' : 'warn');
+      status.textContent = match
+        ? 'Matches an enabled model.'
+        : 'No enabled model by that name — must be one you added here.';
+    };
+
+    document.querySelectorAll('[data-known]').forEach((el) => {
+      if (!el.disabled) showFieldStatus(el);
+    });
+
+    document.addEventListener('input', (event) => {
+      if (event.target.dataset && event.target.dataset.known !== undefined) {
+        showFieldStatus(event.target);
+      }
+    });
+
     document.addEventListener('change', (event) => {
       const el = event.target;
       if (el.dataset.providerSlot !== undefined) {
@@ -851,7 +906,7 @@ function script(): string {
         vscode.postMessage({
           command: 'updateSetting',
           key: el.dataset.setting,
-          value: el.type === 'checkbox' ? el.checked : el.value,
+          value: el.type === 'checkbox' ? el.checked : el.value.trim(),
         });
       }
     });

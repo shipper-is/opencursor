@@ -286,15 +286,17 @@ export class ModelStore {
       return undefined;
     }
 
-    const withoutPrefix = raw.startsWith(modelPrefix)
-      ? raw.slice(modelPrefix.length)
-      : raw;
+    // Matching is case-insensitive because the setting is hand-typeable.
+    const full = raw.toLowerCase();
+    const bare = full.startsWith(modelPrefix.toLowerCase())
+      ? full.slice(modelPrefix.length)
+      : full;
     const match = profiles.find(
       (profile) =>
-        profile.id === withoutPrefix ||
-        profile.cursorSlug === withoutPrefix ||
-        profile.displayName === raw ||
-        this.cursorNameFor(profile, modelPrefix) === raw
+        profile.id.toLowerCase() === bare ||
+        profile.cursorSlug?.toLowerCase() === bare ||
+        profile.displayName.toLowerCase() === full ||
+        this.cursorNameFor(profile, modelPrefix).toLowerCase() === full
     );
 
     return match ? this.cursorNameFor(match, modelPrefix) : undefined;
