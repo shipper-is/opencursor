@@ -2,7 +2,7 @@
   "name": "open-cursor",
   "displayName": "Open Cursor",
   "description": "Use any supported AI provider in Cursor through one guided setup",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "publisher": "shipper-is",
   "license": "MIT",
   "repository": {
